@@ -302,3 +302,14 @@ The license system in `pkg/license/` funds Vikunja's ongoing development. Vikunj
 - Event listeners in `pkg/*/listeners.go` must be registered properly
 - CORS settings in backend must allow frontend domain
 - API tokens have different scopes - check permissions carefully
+
+## Cursor Cloud specific instructions
+
+Environment is pre-provisioned; the startup update script keeps deps fresh (`mise install`, `pnpm -C frontend install`, `go mod download`). Standard commands live in the sections above — this section only covers non-obvious run caveats.
+
+- **Toolchain is managed by `mise`** (see `mise.toml`: node, pnpm, go pinned). `mise` is activated in `~/.bashrc`, so a login shell (`bash -l`) resolves the correct `node`/`pnpm`/`go`. `mage` and `golangci-lint` live in the Go bin dirs and are on `PATH` via that activation.
+- **`golangci-lint` must be built with the repo's Go version.** The prebuilt v2.4.0 binary from the official install script is compiled with go1.25 and `mage lint` aborts with a "Go language version used to build golangci-lint is lower than the targeted Go version" error. It was installed here via `GOBIN=$HOME/go/bin GOTOOLCHAIN=local go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.4.0` so it is built with the mise Go toolchain. Re-run that if lint complains about the Go version.
+- **Running the API (`./vikunja web` after `mage build`) requires `service.publicurl` because CORS is enabled by default.** Without it the server exits immediately with `service.publicurl is required when cors.enable is true`. Start it with the frontend origin, e.g. `VIKUNJA_SERVICE_PUBLICURL=http://127.0.0.1:4173/ ./vikunja web`. Default CORS origins already allow `http://127.0.0.1:*` / `http://localhost:*`.
+- **Run the frontend with `DEV_PROXY` so it proxies `/api` to the backend** (avoids CORS entirely): `DEV_PROXY=http://127.0.0.1:3456 pnpm dev`. `window.API_URL` defaults to the relative `/api/v1`, so without `DEV_PROXY` the SPA cannot reach the API in dev.
+- Default DB is SQLite; the API auto-runs migrations on startup and writes `./vikunja.db` (gitignored, along with `config.yml`, `files/`, and `frontend/.env.local`). No external services (Redis/SMTP/Postgres) are needed for a standard dev loop — mailer is disabled, so registered users are activated immediately.
+- Ports: API `3456`, frontend dev server `4173`.
