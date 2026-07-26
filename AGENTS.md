@@ -302,3 +302,17 @@ The license system in `pkg/license/` funds Vikunja's ongoing development. Vikunj
 - Event listeners in `pkg/*/listeners.go` must be registered properly
 - CORS settings in backend must allow frontend domain
 - API tokens have different scopes - check permissions carefully
+
+## Cursor Cloud specific instructions
+
+The dependency-refresh update script (`go mod download` + frontend `pnpm install`) runs automatically on VM startup. The toolchain (Go, Node 24 via nvm, pnpm 11 via corepack, `mage`, `golangci-lint`) is already installed in the VM snapshot. Standard build/test/lint/run commands are documented above under "Development Commands" — this section only records non-obvious startup caveats.
+
+### Toolchain / PATH gotchas
+- **Node version shadowing:** `/exec-daemon/node` is Node 22 and appears first in `PATH` in bare/non-interactive shells, but the frontend requires Node ≥ 24 (`frontend/.nvmrc` = `24.18.0`). Interactive login shells already select Node 24 (set up in `~/.bashrc`). If a script runs in a bare shell, source nvm first: `export NVM_DIR="$HOME/.nvm"; . "$NVM_DIR/nvm.sh"; nvm use 24.18.0`.
+- **`go` is 1.22.2 but auto-upgrades:** the base `/usr/bin/go` is 1.22.2 and transparently downloads the 1.26.4 toolchain per `go.mod` (`GOTOOLCHAIN`). This is expected; `mage build`/`mage test:*` work as-is.
+- **`golangci-lint` must be built with Go ≥ 1.26:** a plain `go install .../golangci-lint@v2.12.2` builds it with the module's pinned go1.25 toolchain, and it then refuses to lint this go1.26.4 project (`Go language version (go1.25) ... lower than the targeted Go version (1.26.4)`). The snapshot's binary was built with `GOTOOLCHAIN=go1.26.4 go install ...` — reinstall it that way if it ever needs rebuilding.
+
+### Running the app in dev
+- **Two processes:** backend API on `:3456` (`./vikunja` after `mage build`) and the Vite frontend on `:4173` (`cd frontend && pnpm dev`). SQLite (`./vikunja.db`) is embedded — no separate DB service.
+- **`VIKUNJA_SERVICE_PUBLICURL` is required to start the API directly:** CORS is enabled by default and the server refuses to boot without `service.publicurl`. Run with e.g. `VIKUNJA_SERVICE_PUBLICURL=http://localhost:4173/ ./vikunja`. (`mage test:e2e` sets its own config and is unaffected.)
+- **Frontend → backend wiring:** `frontend/.env.local` (gitignored) with `DEV_PROXY=http://localhost:3456` makes Vite proxy `/api` to the backend. Without it, the frontend's `:3456` auto-discovery fallback also works.
