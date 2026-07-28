@@ -11,6 +11,12 @@ The project consists of:
 - `desktop/` – Electron wrapper application
 - `docs/` – Documentation website
 
+## Fork and PR Safety
+
+- **Never push commits or branches to the `upstream` remote.** Push only to `origin`, which must point to this fork.
+- Open pull requests from branches on this fork. Do not create branches or pull requests that require write access to the upstream repository.
+- Before any push, verify the destination with `git remote -v`.
+
 ## API Version Policy — new work goes to /api/v2
 
 **`/api/v1` is effectively deprecated and frozen.** It still runs and is fully supported for existing clients, but it should not grow.
@@ -305,11 +311,14 @@ The license system in `pkg/license/` funds Vikunja's ongoing development. Vikunj
 
 ## Cursor Cloud specific instructions
 
-Environment is pre-provisioned; the startup update script keeps deps fresh (`mise install`, `pnpm -C frontend install`, `go mod download`). Standard commands live in the sections above — this section only covers non-obvious run caveats.
+The dependency-refresh update script (`go mod download` + frontend `pnpm install`) runs automatically on VM startup. The toolchain (Go, Node 24 via nvm, pnpm 11 via corepack, `mage`, `golangci-lint`) is already installed in the VM snapshot. Standard build/test/lint/run commands are documented above under "Development Commands" — this section only records non-obvious startup caveats.
 
-- **Toolchain is managed by `mise`** (see `mise.toml`: node, pnpm, go pinned). `mise` is activated in `~/.bashrc`, so a login shell (`bash -l`) resolves the correct `node`/`pnpm`/`go`. `mage` and `golangci-lint` live in the Go bin dirs and are on `PATH` via that activation.
-- **`golangci-lint` must be built with the repo's Go version.** The prebuilt v2.4.0 binary from the official install script is compiled with go1.25 and `mage lint` aborts with a "Go language version used to build golangci-lint is lower than the targeted Go version" error. It was installed here via `GOBIN=$HOME/go/bin GOTOOLCHAIN=local go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.4.0` so it is built with the mise Go toolchain. Re-run that if lint complains about the Go version.
-- **Running the API (`./vikunja web` after `mage build`) requires `service.publicurl` because CORS is enabled by default.** Without it the server exits immediately with `service.publicurl is required when cors.enable is true`. Start it with the frontend origin, e.g. `VIKUNJA_SERVICE_PUBLICURL=http://127.0.0.1:4173/ ./vikunja web`. Default CORS origins already allow `http://127.0.0.1:*` / `http://localhost:*`.
-- **Run the frontend with `DEV_PROXY` so it proxies `/api` to the backend** (avoids CORS entirely): `DEV_PROXY=http://127.0.0.1:3456 pnpm dev`. `window.API_URL` defaults to the relative `/api/v1`, so without `DEV_PROXY` the SPA cannot reach the API in dev.
-- Default DB is SQLite; the API auto-runs migrations on startup and writes `./vikunja.db` (gitignored, along with `config.yml`, `files/`, and `frontend/.env.local`). No external services (Redis/SMTP/Postgres) are needed for a standard dev loop — mailer is disabled, so registered users are activated immediately.
-- Ports: API `3456`, frontend dev server `4173`.
+### Toolchain / PATH gotchas
+- **Node version shadowing:** `/exec-daemon/node` is Node 22 and appears first in `PATH` in bare/non-interactive shells, but the frontend requires Node ≥ 24 (`frontend/.nvmrc` = `24.18.0`). Interactive login shells already select Node 24 (set up in `~/.bashrc`). If a script runs in a bare shell, source nvm first: `export NVM_DIR="$HOME/.nvm"; . "$NVM_DIR/nvm.sh"; nvm use 24.18.0`.
+- **`go` is 1.22.2 but auto-upgrades:** the base `/usr/bin/go` is 1.22.2 and transparently downloads the 1.26.4 toolchain per `go.mod` (`GOTOOLCHAIN`). This is expected; `mage build`/`mage test:*` work as-is.
+- **`golangci-lint` must be built with Go ≥ 1.26:** a plain `go install .../golangci-lint@v2.12.2` builds it with the module's pinned go1.25 toolchain, and it then refuses to lint this go1.26.4 project (`Go language version (go1.25) ... lower than the targeted Go version (1.26.4)`). The snapshot's binary was built with `GOTOOLCHAIN=go1.26.4 go install ...` — reinstall it that way if it ever needs rebuilding.
+
+### Running the app in dev
+- **Two processes:** backend API on `:3456` (`./vikunja` after `mage build`) and the Vite frontend on `:4173` (`cd frontend && pnpm dev`). SQLite (`./vikunja.db`) is embedded — no separate DB service.
+- **`VIKUNJA_SERVICE_PUBLICURL` is required to start the API directly:** CORS is enabled by default and the server refuses to boot without `service.publicurl`. Run with e.g. `VIKUNJA_SERVICE_PUBLICURL=http://localhost:4173/ ./vikunja`. (`mage test:e2e` sets its own config and is unaffected.)
+- **Frontend → backend wiring:** `frontend/.env.local` (gitignored) with `DEV_PROXY=http://localhost:3456` makes Vite proxy `/api` to the backend. Without it, the frontend's `:3456` auto-discovery fallback also works.
